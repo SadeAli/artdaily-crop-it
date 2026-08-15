@@ -989,7 +989,16 @@
 
   canvas.addEventListener('keydown', function (ev) {
     var k = ev.key;
-    if (k === 'Enter') { ev.preventDefault(); clearDiscard(); advance(); return; }
+    /* a HELD Enter auto-repeats straight through cut → next scene → cut,
+       cutting frames nobody framed and reporting rounds nobody played;
+       only the first press is a press (arrows below still repeat) */
+    if (k === 'Enter') {
+      ev.preventDefault();
+      if (ev.repeat) return;
+      clearDiscard();
+      advance();
+      return;
+    }
     if (k === 'Backspace' || k === 'u') { ev.preventDefault(); undoCut(); return; }
     if (phase !== 'crop') return;
     var step = ev.shiftKey ? 6 : 2;
@@ -1123,7 +1132,19 @@
     draw();
   }
 
+  /* "cut it ✂" changes job in place (cut → next scene →), and the picture
+     and the Enter key are the same action, so the second click of an
+     accidental double-click — or one auto-repeat of a held Enter — fires
+     the NEW job and takes the verdicts, the dashed "suggested" crop and
+     the undo with it. One guard on the action itself covers all three
+     paths (button, canvas tap, keyboard). */
+  var ACTION_GUARD_MS = 250;
+  var actionAt = 0;
+
   function advance() {
+    var now = Date.now();
+    if (now - actionAt < ACTION_GUARD_MS) return;
+    actionAt = now;
     if (phase === 'crop') cut();
     else if (sceneIdx < SCENES_PER_ROUND - 1) nextScene();
     else newRound();
