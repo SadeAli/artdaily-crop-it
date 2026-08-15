@@ -31,6 +31,7 @@
   var btnUndo = document.getElementById('btnUndo');
   var btnRound = document.getElementById('btnRound');
   var verdictsEl = document.getElementById('verdicts');
+  var liveMeterEl = document.getElementById('liveMeter');
 
   ArtDaily.init({ slug: SLUG });
 
@@ -75,7 +76,7 @@
       (subject.cy - crop.y) / crop.h, (crop.y + crop.h - subject.cy) / crop.h);
     var note;
     if (edge < 0) note = 'subject centre is outside the frame';
-    else if (pts >= 36) note = 'subject sits on a power point — solid';
+    else if (pts >= 36) note = 'subject sits on a thirds crossing — solid';
     else if (dc < 0.06) note = 'dead centre — static; drop it onto a third';
     else if (edge < 0.1) note = 'hugging the edge — pull it back to a third';
     else if (pts >= 20) note = 'near a third — one nudge from strong';
@@ -125,21 +126,41 @@
     }
     var frac = clamp01(ahead / crop.w);
     var pts = Math.round(20 * clamp01((frac - 0.2) / 0.3));
+    /* Put the measurement in the sentence: "lead room" and "breathing
+       room" were carrying the whole idea as bare phrases, with nothing
+       on screen showing how much of it there was. */
+    var pct = Math.round(frac * 100) + '% of the frame in front of it (full credit at 50%)';
     var note;
-    if (pts >= 18) note = 'good lead room — the gaze has somewhere to go';
-    else if (blocked) note = 'the ' + blocked + ' blocks the gaze — crop it out or reframe';
-    else if (pts >= 8) note = 'a little cramped ahead — slide the frame';
-    else note = 'staring into the frame edge — give it lead room';
+    if (pts >= 18) note = 'room to look into — ' + pct;
+    else if (blocked) note = 'the ' + blocked + ' is in the way of the gaze — crop it out or reframe · ' + pct;
+    else if (pts >= 8) note = 'a little cramped in front — slide the frame · ' + pct;
+    else note = 'it is staring straight into the frame edge — leave space in front · ' + pct;
     return { pts: pts, max: 20, note: note };
   }
 
-  /* d) integrity, 0–15: whole subject in frame. A 4% margin earns
-     full; inside-but-touching stays cheap; any clipping is zero. */
+  /* d) integrity, 0–15: whole subject in frame. A 4% margin earns full;
+     inside-but-touching stays cheap; clipping FADES to zero rather than
+     falling off a cliff. The cliff was unfair in a specific way: the
+     lighthouse's measured bounds include its beam, which is painted as a
+     0.22-alpha wash a beginner does not read as part of the subject at
+     all — so slicing it dropped 5 points to 0 with a note that read as
+     arbitrary. A sliver clipped is a sliver's worth of penalty. */
+  var CLIP_FADE = 0.05; /* fraction of the crop over which 5 → 0 */
   function scoreIntegrity(crop, subject) {
+    if (!(crop.w > 0) || !(crop.h > 0)) return { pts: 0, max: 15, note: 'no frame' };
     var m = Math.min(
       (subject.x0 - crop.x) / crop.w, (crop.x + crop.w - subject.x1) / crop.w,
       (subject.y0 - crop.y) / crop.h, (crop.y + crop.h - subject.y1) / crop.h);
-    if (!(m >= 0)) return { pts: 0, max: 15, note: 'subject clipped by the frame' };
+    if (!isFinite(m)) return { pts: 0, max: 15, note: 'subject clipped by the frame' };
+    if (m < 0) {
+      var over = Math.min(1, -m / CLIP_FADE);
+      return {
+        pts: Math.round(5 * (1 - over)),
+        max: 15,
+        note: over >= 1 ? 'a real slice of the subject is outside the frame'
+                        : 'the frame just clips the subject — the outline shows what counts as “subject”',
+      };
+    }
     var pts = Math.round(5 + 10 * clamp01(m / 0.04));
     var note = m >= 0.04 ? 'whole subject, clean margin'
                          : 'whole subject but touching the edge — tight';
@@ -418,11 +439,24 @@
 
   function cropRect() { return { x: crop.x, y: crop.y, w: crop.w, h: crop.w * RATIO }; }
 
-  /* Start on the classic beginner crop — subject dead centre, horizon
-     halving the frame. Scoring low from here is the lesson; the
-     reveal shows the way out. */
+  /* Normally the frame opens on the classic beginner crop — subject dead
+     centre, horizon halving the frame — because scoring low from there IS
+     the lesson and the reveal shows the way out.
+     The very first scene of a first round is the exception: punishing a
+     beginner's own instinct before they have been told anything is how a
+     first visit ends. It opens already nudged off centre, so scene 1 is a
+     small win and the dead-centre lesson lands on scene 2 instead. */
   function resetCrop() {
-    crop = { x: scene.subject.cx - 48, y: scene.horizonY - 48 * RATIO, w: 96 };
+    var offX = 0, offY = 0;
+    if (round === 1 && sceneIdx === 0) {
+      offX = -scene.subject.facing * 22;
+      offY = -18 * RATIO;
+    }
+    crop = {
+      x: scene.subject.cx - 48 + offX,
+      y: scene.horizonY - 48 * RATIO + offY,
+      w: 96,
+    };
     clampCrop();
   }
 
@@ -744,6 +778,45 @@
     ctx.fillText(label, lx, ly);
   }
 
+  /* LIVE RULE METER. All four guideline verdicts only appeared after
+     "cut it", so the frame was moved blind and the rules could only be
+     learned one post-mortem at a time. scoreScene is pure and cheap, so
+     it can simply run on every move: the player watches placement,
+     horizon, room and integrity respond to the frame under their hand,
+     which teaches all four by feel. aria-hidden so a screen reader is
+     not read a new number on every pixel — the reveal is the spoken
+     version, and it is unchanged. */
+  var METER_LABELS = {
+    placement: 'on a third',
+    horizon: 'horizon',
+    breathing: 'room ahead',
+    integrity: 'all in frame',
+  };
+
+  function updateLiveMeter() {
+    if (!liveMeterEl) return;
+    if (phase !== 'crop' || !scene || !crop) { liveMeterEl.hidden = true; return; }
+    var res = scoreScene(cropRect(), scene), i, p, cell, bar, fill, cap;
+    liveMeterEl.innerHTML = '';
+    for (i = 0; i < res.parts.length; i++) {
+      p = res.parts[i];
+      cell = document.createElement('div');
+      cell.className = 'lm-cell';
+      cap = document.createElement('span');
+      cap.className = 'lm-cap';
+      cap.textContent = METER_LABELS[p.label] || p.label;
+      bar = document.createElement('span');
+      bar.className = 'lm-bar';
+      fill = document.createElement('i');
+      fill.style.width = Math.round(100 * (p.max ? p.pts / p.max : 0)) + '%';
+      bar.appendChild(fill);
+      cell.appendChild(cap);
+      cell.appendChild(bar);
+      liveMeterEl.appendChild(cell);
+    }
+    liveMeterEl.hidden = false;
+  }
+
   function draw() {
     var c = inks();
     ctx.clearRect(0, 0, SW + 2, SH + 2);
@@ -751,6 +824,7 @@
     paintScene(c);
     if (phase === 'crop') paintCropUI(c);
     else paintReveal(c);
+    updateLiveMeter();
   }
 
   /* ============================================================
@@ -767,7 +841,10 @@
     return { x: (ev.clientX - rect.left) / s, y: (ev.clientY - rect.top) / s };
   }
 
-  function hitR() { return Math.max(7, 22 / s); } /* ≥ 44px square hit area */
+  /* ≥ 44px square hit area, widened for the hardware in hand: a
+     screenless tablet cannot see its own cursor, so acquiring a corner
+     is the hardest thing it does. */
+  function hitR() { return Math.max(7, ArtDaily.startRadius(22) / s); }
 
   function hitTest(p) {
     var r = cropRect(), pts = corners(r), i, bestI = -1, bd = hitR(), d;
@@ -820,7 +897,11 @@
     crop.y = clampv(crop.y, 0, SH - crop.w * RATIO);
   }
 
+  var lastPenAt = 0;
   canvas.addEventListener('pointerdown', function (ev) {
+    /* palm rejection: a pen always beats a palm that landed first */
+    if (ev.pointerType === 'pen') lastPenAt = Date.now();
+    else if (ev.pointerType === 'touch' && Date.now() - lastPenAt < 500) return;
     /* tapping the picture during the reveal moves on, the same habit
        the sibling drills teach */
     /* clearDiscard so an armed "discard round?" never survives a scene

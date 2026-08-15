@@ -43,6 +43,7 @@
           <div class="hud-stat"><dt>round</dt><dd id="hudRound">–</dd></div>
           <div class="hud-stat"><dt>score</dt><dd id="hudScore">–</dd></div>
           <div class="hud-stat"><dt>best</dt><dd id="hudBest">–</dd></div>
+                <div class="hud-stat hud-input"><dd id="inputMode" hidden></dd></div>
         </dl>
       </div>
 
@@ -55,6 +56,7 @@
           <button class="btn btn-primary" id="btnCut">cut it <span aria-hidden="true">✂</span></button>
           <button class="btn" id="btnUndo" hidden>undo cut <span aria-hidden="true">↺</span></button>
         </div>
+        <div class="live-meter" id="liveMeter" aria-hidden="true" hidden></div>
         <div class="verdicts" id="verdicts" aria-live="polite" hidden></div>
       </div>
 
@@ -64,9 +66,9 @@
       </div>
       <div class="howto" id="howTo" hidden>
         <p class="howto-cmd" aria-hidden="true"><span class="prompt">$</span> man crop-it</p>
-        <p>Drag the 3:2 frame over the scene — grab the middle to move it, a corner (or a two-finger pinch) to resize — then cut it to score. Three scenes per round; tap the picture during a reveal for the next scene.</p>
+        <p>Drag the 3:2 frame over the scene — grab the middle to move it, a corner (or a two-finger pinch) to resize — then cut it to score. The four bars under the picture move as you drag, so you can feel each guideline responding instead of learning it one post-mortem at a time. Three scenes per round; tap the picture during a reveal for the next scene.</p>
         <p>Keys: arrows nudge the frame (hold shift for bigger steps), <code>+</code> / <code>−</code> resize, enter cuts, backspace undoes a cut on scenes 1–2.</p>
-        <p>Scored against classic guidelines: subject on a thirds crossing, horizon on a third, clear breathing room ahead of the gaze (anything parked in front of it counts against you), nothing clipped. Composition has taste in it — this measures the guidelines, not genius.</p>
+        <p>Scored against classic guidelines: subject on a <b>thirds crossing</b> (one of the four points where the third-lines cross), horizon on a third, clear space in front of whatever the subject is looking at — painters call that <em>lead room</em>, and anything parked in it counts against you — and nothing clipped. Clipping fades rather than falling off a cliff, so shaving a sliver is a sliver's penalty. Composition has taste in it — this measures the guidelines, not genius.</p>
         <p>The whole silhouette counts as the subject — including the lighthouse's beam, which is why slicing it reads as a clipped subject.</p>
         <p>Studio tip: crop the story, not the object — where the subject looks matters more than where it stands.</p>
       </div>

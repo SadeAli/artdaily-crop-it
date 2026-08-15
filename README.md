@@ -24,3 +24,28 @@ score. Tap the picture to move on.
 Run: `python3 -m http.server 8080` in this folder. No build, no deps, no network.
 
 Part of [Art Daily](https://artdaily.sadeali.com/) · more at [sadeali.com](https://sadeali.com/)
+
+## What changed in the input-fairness pass
+
+Four live bars under the picture move as you drag, so each guideline is
+learned by feel instead of one post-mortem at a time. "Power point" is
+now "thirds crossing", the lead-room verdict carries its measurement
+("34% of the frame in front of it, full credit at 50%"), and clipping the
+subject fades from 5 to 0 rather than falling off a cliff — the
+lighthouse's beam counts as subject and a beginner does not read it that
+way. Scene 1 of a first round opens slightly off-centre, so the
+deliberate dead-centre lesson lands on scene 2 instead of punishing a
+beginner's instinct before anything has been explained.
+
+## Input fairness
+
+Scores are only ever compared against your own history, so the drill
+eases its tolerances for the hardware in your hand and says which one it
+eased for (the "scoring for…" chip in the HUD). A pen keeps the strict
+reference; a mouse or trackpad, which pivots at the wrist and cannot
+creep, gets roughly double the room; a finger sits between. Start and
+grab zones move the other way — a screenless tablet needs the *biggest*
+targets, because the hand is out of sight. Relative tolerances carry an
+absolute pixel floor so a phone is never held to a stricter standard
+than a desktop for the same drill.
+
