@@ -817,6 +817,41 @@
     liveMeterEl.hidden = false;
   }
 
+  /* WHAT THE CANVAS SAYS IT IS. Two problems met here: the label was the
+     placeholder "Crop It drill area", and the live meter that finally
+     showed the four guidelines responding is aria-hidden — rightly, since
+     nobody wants four numbers re-read on every pixel of a drag. So a
+     keyboard player had NO feedback at all until after the cut. The
+     canvas is a real control (arrows move it, +/- resize, Enter cuts), so
+     its accessible name carries the same four readings the bars do, on
+     demand rather than shouted, plus the subject and the keys. Written
+     only when the string changes. */
+  var lastLabel = '';
+  function syncCanvasLabel() {
+    var s, res, i, p;
+    if (!scene) {
+      s = 'Crop It drill area';
+    } else if (phase === 'reveal') {
+      s = 'Crop It, scene ' + (sceneIdx + 1) + ' of ' + SCENES_PER_ROUND +
+        ' — cut and scored; the verdicts are listed below the picture. ' +
+        'Press Enter for the next scene.';
+    } else {
+      res = scoreScene(cropRect(), scene);
+      s = 'Crop It, scene ' + (sceneIdx + 1) + ' of ' + SCENES_PER_ROUND + ' — a ' +
+        KIND_LABEL[scene.subject.kind] + ' facing ' +
+        (scene.subject.facing > 0 ? 'right' : 'left') + '. Your frame so far:';
+      for (i = 0; i < res.parts.length; i++) {
+        p = res.parts[i];
+        s += ' ' + (METER_LABELS[p.label] || p.label) + ' ' + p.pts + ' of ' + p.max + ',';
+      }
+      s += ' ' + res.total + ' of 100. Arrow keys move the frame, ' +
+        'plus and minus resize it, Enter cuts.';
+    }
+    if (s === lastLabel) return;
+    lastLabel = s;
+    canvas.setAttribute('aria-label', s);
+  }
+
   function draw() {
     var c = inks();
     ctx.clearRect(0, 0, SW + 2, SH + 2);
@@ -825,6 +860,7 @@
     if (phase === 'crop') paintCropUI(c);
     else paintReveal(c);
     updateLiveMeter();
+    syncCanvasLabel();
   }
 
   /* ============================================================
@@ -1115,6 +1151,12 @@
     sceneScores.pop();
     phase = 'crop';
     verdictsEl.hidden = true;
+    /* hiding the button that was just pressed drops keyboard focus onto
+       <body> — the next Tab would restart at the back link. Hand it to
+       the frame the player has just been given back. */
+    if (document.activeElement === btnUndo) {
+      try { canvas.focus({ preventScroll: true }); } catch (e) { try { canvas.focus(); } catch (e2) {} }
+    }
     btnUndo.hidden = true;
     setBtnLabel(btnCut, 'cut it', '✂');
     hint.textContent = sceneHint();

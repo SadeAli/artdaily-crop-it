@@ -47,7 +47,10 @@
         </dl>
       </div>
 
-      <p class="hint" id="hint">Loading…</p>
+      <!-- The teaching line: it carries the prompt AND the per-attempt
+           reveal in words, so it is a live region — otherwise a screen
+           reader hears the prompt once and never hears a single result. -->
+      <p class="hint" id="hint" aria-live="polite">Loading…</p>
 
       <div class="game-stage">
         <canvas class="game-canvas" id="gameCanvas" tabindex="0" role="img" aria-label="Crop It drill area"></canvas>
