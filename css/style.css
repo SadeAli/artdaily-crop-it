@@ -387,9 +387,19 @@ a { color: inherit; }
    game-specific styles below this line
    ============================================================ */
 
-/* Crop It — the cut button under the canvas + the verdict panel */
+/* Crop It — the cut/undo row under the canvas + the verdict panel */
 
-.cutbtn { display: block; margin: 10px auto 0; }
+/* Sticker buttons keep their look but never drop under the 44px
+   comfortable-tap floor. */
+.btn { min-height: 44px; }
+
+.cutrow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+}
 
 .verdicts {
   margin-top: 10px;

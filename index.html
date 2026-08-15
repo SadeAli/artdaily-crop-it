@@ -51,18 +51,23 @@
       <div class="game-stage">
         <canvas class="game-canvas" id="gameCanvas" tabindex="0" role="img" aria-label="Crop It drill area"></canvas>
         <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-        <button class="btn btn-primary cutbtn" id="btnCut">cut it <span aria-hidden="true">✂</span></button>
+        <div class="cutrow">
+          <button class="btn btn-primary" id="btnCut">cut it <span aria-hidden="true">✂</span></button>
+          <button class="btn" id="btnUndo" hidden>undo cut <span aria-hidden="true">↺</span></button>
+        </div>
         <div class="verdicts" id="verdicts" aria-live="polite" hidden></div>
       </div>
 
       <div class="game-controls">
-        <button class="btn btn-primary" id="btnRound">new round <span aria-hidden="true">↻</span></button>
+        <button class="btn" id="btnRound">new round <span aria-hidden="true">↻</span></button>
         <button class="btn" id="btnHow" aria-expanded="false" aria-controls="howTo">how to play</button>
       </div>
       <div class="howto" id="howTo" hidden>
         <p class="howto-cmd" aria-hidden="true"><span class="prompt">$</span> man crop-it</p>
-        <p>Drag the 3:2 frame over the scene — move from inside, resize by the corners — then cut it. Three scenes per round; arrow keys nudge, enter cuts.</p>
-        <p>Scored against classic guidelines: subject on a thirds crossing, horizon on a third, breathing room ahead of the gaze, nothing clipped. Composition has taste in it — this measures the guidelines, not genius.</p>
+        <p>Drag the 3:2 frame over the scene — grab the middle to move it, a corner (or a two-finger pinch) to resize — then cut it to score. Three scenes per round; tap the picture during a reveal for the next scene.</p>
+        <p>Keys: arrows nudge the frame (hold shift for bigger steps), <code>+</code> / <code>−</code> resize, enter cuts, backspace undoes a cut on scenes 1–2.</p>
+        <p>Scored against classic guidelines: subject on a thirds crossing, horizon on a third, clear breathing room ahead of the gaze (anything parked in front of it counts against you), nothing clipped. Composition has taste in it — this measures the guidelines, not genius.</p>
+        <p>The whole silhouette counts as the subject — including the lighthouse's beam, which is why slicing it reads as a clipped subject.</p>
         <p>Studio tip: crop the story, not the object — where the subject looks matters more than where it stands.</p>
       </div>
 

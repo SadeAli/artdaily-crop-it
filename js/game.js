@@ -28,6 +28,8 @@
   var hudScore = document.getElementById('hudScore');
   var hudBest = document.getElementById('hudBest');
   var btnCut = document.getElementById('btnCut');
+  var btnUndo = document.getElementById('btnUndo');
+  var btnRound = document.getElementById('btnRound');
   var verdictsEl = document.getElementById('verdicts');
 
   ArtDaily.init({ slug: SLUG });
@@ -40,6 +42,10 @@
   /* NaN-safe: every rule funnels its band through here, so degenerate
      geometry (zero-size crops, poisoned coords) scores 0, never NaN. */
   function clamp01(t) { return t > 1 ? 1 : t > 0 ? t : 0; }
+
+  /* written so NaN falls to `lo` rather than propagating — makeCrop
+     below must always hand the search a legal frame */
+  function clampv(v, lo, hi) { return v > lo ? (v < hi ? v : hi) : lo; }
 
   function thirdsPoints(crop) {
     return [
@@ -96,16 +102,32 @@
     return { pts: pts, max: 25, note: note };
   }
 
-  /* c) breathing room, 0–20: fraction of the crop's width ahead of
-     the subject's gaze. ≥ 0.5 is full; nothing left by 0.2. */
-  function scoreBreathing(crop, subject) {
+  /* c) breathing room, 0–20: the CLEAR fraction of the crop's width
+     ahead of the subject's gaze. The frame edge ends it — and so does
+     a secondary element parked in the lead room, which is exactly what
+     scene 3 puts there. ≥ 0.5 is full; nothing left by 0.2.
+     sec = { x, y, r, label } or null. */
+  function scoreBreathing(crop, subject, sec) {
     var ahead = subject.facing > 0
       ? (crop.x + crop.w - subject.cx)
       : (subject.cx - crop.x);
+    var blocked = null, dx, gap;
+    if (sec) {
+      dx = (sec.x - subject.cx) * subject.facing;  /* > 0 ⇒ in the lead room */
+      gap = dx - sec.r;
+      /* it only blocks if it is actually inside the crop the player cut */
+      if (dx > 0 && gap < ahead &&
+          sec.y >= crop.y && sec.y <= crop.y + crop.h &&
+          sec.x + sec.r > crop.x && sec.x - sec.r < crop.x + crop.w) {
+        ahead = gap;
+        blocked = sec.label;
+      }
+    }
     var frac = clamp01(ahead / crop.w);
     var pts = Math.round(20 * clamp01((frac - 0.2) / 0.3));
     var note;
     if (pts >= 18) note = 'good lead room — the gaze has somewhere to go';
+    else if (blocked) note = 'the ' + blocked + ' blocks the gaze — crop it out or reframe';
     else if (pts >= 8) note = 'a little cramped ahead — slide the frame';
     else note = 'staring into the frame edge — give it lead room';
     return { pts: pts, max: 20, note: note };
@@ -128,7 +150,7 @@
     var rules = [
       { label: 'placement', r: scorePlacement(crop, scene.subject) },
       { label: 'horizon', r: scoreHorizon(crop, scene.horizonY) },
-      { label: 'breathing', r: scoreBreathing(crop, scene.subject) },
+      { label: 'breathing', r: scoreBreathing(crop, scene.subject, scene.secondary) },
       { label: 'integrity', r: scoreIntegrity(crop, scene.subject) },
     ];
     var total = 0, parts = [], i;
@@ -140,24 +162,64 @@
     return { total: total, parts: parts };
   }
 
-  /* Grid-search the same rules for the crop shown in the reveal —
-     doubling as proof a near-perfect crop exists for the scene. */
+  /* A legal crop from loose numbers — the search never proposes a
+     frame the player could not have dragged. */
+  function makeCrop(x, y, w) {
+    var ww = clampv(w, MIN_W, Math.min(MAX_W, SW, SH / RATIO));
+    var hh = ww * RATIO;
+    return { x: clampv(x, 0, SW - ww), y: clampv(y, 0, SH - hh), w: ww, h: hh };
+  }
+
+  /* Hill-climb from a grid seed: the four rules are plateau-shaped, so
+     a coarse grid lands near the optimum but rarely on it. Steps halve
+     from 8 units down to a quarter unit; totals are integers ≤ 100, so
+     the climb always terminates (the guard is belt-and-braces). */
+  function refineCrop(scene, seed) {
+    var MOVES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+    var best = seed.crop, bestT = seed.total;
+    var step = 8, guard = 0, moved, i, cand, t;
+    while (step >= 0.25 && guard < 600) {
+      moved = false;
+      for (i = 0; i < MOVES.length; i++) {
+        guard += 1;
+        cand = makeCrop(best.x + MOVES[i][0] * step,
+                        best.y + MOVES[i][1] * step,
+                        best.w + MOVES[i][2] * step);
+        t = scoreScene(cand, scene).total;
+        if (t > bestT) { bestT = t; best = cand; moved = true; }
+      }
+      if (!moved) step /= 2;
+    }
+    return { crop: best, total: bestT };
+  }
+
+  /* Search the same rules for the crop shown in the reveal — doubling
+     as proof that a perfect crop exists for the scene. One grid seed
+     per frame width, then refine the most promising few. */
   function bestCrop(scene) {
-    var best = null, bestT = -1;
-    var wi, xi, yi, w, h, x, y, t;
+    var seeds = [], best = null;
+    var wi, xi, yi, w, h, x, y, t, sBest, sBestT, res;
     for (wi = 0; wi <= 8; wi++) {
       w = MIN_W + (MAX_W - MIN_W) * wi / 8;
       h = w * RATIO;
+      sBest = null; sBestT = -1;
       for (xi = 0; xi <= 24; xi++) {
         x = (SW - w) * xi / 24;
         for (yi = 0; yi <= 10; yi++) {
           y = (SH - h) * yi / 10;
           t = scoreScene({ x: x, y: y, w: w, h: h }, scene).total;
-          if (t > bestT) { bestT = t; best = { x: x, y: y, w: w, h: h }; }
+          if (t > sBestT) { sBestT = t; sBest = { x: x, y: y, w: w, h: h }; }
         }
       }
+      seeds.push({ crop: sBest, total: sBestT });
     }
-    return { crop: best, total: bestT };
+    seeds.sort(function (a, b2) { return b2.total - a.total; });
+    for (wi = 0; wi < seeds.length && wi < 5; wi++) {
+      res = refineCrop(scene, seeds[wi]);
+      if (!best || res.total > best.total) best = res;
+      if (best.total >= 100) break;
+    }
+    return best;
   }
 
   /* ============================================================
@@ -185,13 +247,20 @@
 
   function makeSubject(kind, cx, horizonY, facing) {
     var sub = { kind: kind, cx: cx, facing: facing };
-    var h, w, lean, circ, i, x0, x1;
+    var h, w, lean, circ, i, x0, x1, bx, ly;
     if (kind === 'lighthouse') {
       h = Math.min(34, horizonY - 8);
       w = h * 0.42;
-      sub.h = h; sub.w = w;
-      sub.x0 = cx - w * 0.58; sub.x1 = cx + w * 0.58;
-      sub.y0 = horizonY - h; sub.y1 = horizonY + 4;
+      sub.h = h; sub.w = w; sub.beam = 34;
+      /* the beam is part of the silhouette the eye reads, so it is part
+         of the bounds integrity measures — otherwise a crop that visibly
+         slices the beam still scored "whole subject, clean margin" */
+      ly = horizonY - h * 0.9;
+      bx = cx + facing * sub.beam;
+      sub.x0 = Math.min(cx - w * 0.58, bx);
+      sub.x1 = Math.max(cx + w * 0.58, bx);
+      sub.y0 = Math.min(horizonY - h, ly - 7);
+      sub.y1 = horizonY + 4;
       sub.cy = horizonY - h * 0.42;
     } else if (kind === 'tree') {
       h = Math.min(30, horizonY - 8);
@@ -218,6 +287,11 @@
     return sub;
   }
 
+  /* half-width of each painted secondary, in scene units, and the name
+     the breathing verdict calls it by */
+  var SEC_R = { sun: 5.5, birds: 9.6, island: 13, sail: 5 };
+  var SEC_LABEL = { sun: 'sun', birds: 'birds', island: 'island', sail: 'far sail' };
+
   function makeSecondary(idx, scene) {
     var sub = scene.subject, hz = scene.horizonY, kind, x, y, lo, hi;
     if (idx === 0) {
@@ -238,7 +312,10 @@
     y = kind === 'sun' ? rand(9, Math.max(13, hz - 16))
       : kind === 'birds' ? rand(9, Math.max(13, hz - 22))
       : hz;
-    return { kind: kind, x: x, y: y, facing: Math.random() < 0.5 ? 1 : -1 };
+    return {
+      kind: kind, x: x, y: y, r: SEC_R[kind], label: SEC_LABEL[kind],
+      facing: Math.random() < 0.5 ? 1 : -1,
+    };
   }
 
   function makeDeco(scene) {
@@ -269,15 +346,15 @@
     return scene;
   }
 
-  /* Regenerate until the grid search proves a ≥95 crop exists, so a
-     100 is honestly reachable in every scene. */
+  /* Regenerate until the search proves a full-100 crop exists, so the
+     scene can never cap the round below a perfect score. */
   function makeScene(idx, kind) {
     var tries, s2, res, keep = null, keepRes = null;
-    for (tries = 0; tries < 8; tries++) {
+    for (tries = 0; tries < 12; tries++) {
       s2 = buildScene(idx, kind);
       res = bestCrop(s2);
       if (!keep || res.total > keepRes.total) { keep = s2; keepRes = res; }
-      if (keepRes.total >= 95) break;
+      if (keepRes.total >= 100) break;
     }
     keep.best = keepRes;
     return keep;
@@ -398,16 +475,30 @@
   }
 
   function paintLighthouse(c, sub, hz) {
-    var cx = sub.cx, w = sub.w, top = sub.y0, hh = hz - top;
+    /* the tower's own top, not sub.y0 — the bounds also carry the beam */
+    var cx = sub.cx, w = sub.w, hh = sub.h, top = hz - hh;
     var ly = top + hh * 0.1;
-    ctx.globalAlpha = 0.22; /* the beam points where the light faces */
+    /* The beam points where the light faces — and it counts as part of
+       the subject, so its two rays get a drawn edge: a 0.22 wash alone
+       sits at 1.5:1 and a player cannot see what integrity is judging. */
+    var bx = cx + sub.facing * sub.beam;
+    ctx.globalAlpha = 0.22;
     ctx.fillStyle = c.muted;
     ctx.beginPath();
     ctx.moveTo(cx, ly);
-    ctx.lineTo(cx + sub.facing * 34, ly - 7);
-    ctx.lineTo(cx + sub.facing * 34, ly + 5);
+    ctx.lineTo(bx, ly - 7);
+    ctx.lineTo(bx, ly + 5);
     ctx.closePath();
     ctx.fill();
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = lw(1.25);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(bx, ly - 7);
+    ctx.lineTo(cx, ly);
+    ctx.lineTo(bx, ly + 5);
+    ctx.stroke();
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = c.ink;
     ctx.beginPath();
@@ -567,50 +658,90 @@
   }
 
   function paintCropUI(c) {
-    var r = cropRect(), pts = corners(r), hs = Math.max(3.5, 11 / s), i;
+    var r = cropRect(), pts = corners(r), hs = Math.max(4.5, 15 / s), i;
     scrim(c, r);
-    strokeThirds(r, c.muted, 0.45);
+    /* The thirds are what the score is measured against, so they are
+       meaning-bearing, not decoration: muted at 0.45 sat at 1.9:1 on
+       paper (2.2:1 at night) and simply vanished. 0.85 clears the 3:1
+       graphics floor on both sheets, over the water wash included. */
+    strokeThirds(r, c.muted, 0.85);
     ctx.globalAlpha = 1;
     ctx.strokeStyle = c.ink;
     ctx.lineWidth = lw(2);
     ctx.strokeRect(r.x, r.y, r.w, r.h);
+    /* grips in the accent so they read as handles, not decoration */
     ctx.fillStyle = c.card;
+    ctx.strokeStyle = c.accent;
+    ctx.lineWidth = lw(2);
     for (i = 0; i < 4; i++) {
       ctx.fillRect(pts[i].x - hs / 2, pts[i].y - hs / 2, hs, hs);
       ctx.strokeRect(pts[i].x - hs / 2, pts[i].y - hs / 2, hs, hs);
     }
+    /* The move grip, drawn where hitTest actually reserves it. It is an
+       affordance, so it has to be visible: 0.65 accent read 2.9:1 on
+       paper, 0.9 reads 4.8:1 there and 5.5:1 at night. */
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = lw(1.5);
+    ctx.beginPath();
+    ctx.moveTo(r.x + r.w / 2 - lw(7), r.y + r.h / 2);
+    ctx.lineTo(r.x + r.w / 2 + lw(7), r.y + r.h / 2);
+    ctx.moveTo(r.x + r.w / 2, r.y + r.h / 2 - lw(7));
+    ctx.lineTo(r.x + r.w / 2, r.y + r.h / 2 + lw(7));
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   function paintReveal(c) {
     var r = cropRect(), b = scene.best.crop, sub = scene.subject;
-    var fs = Math.max(5.5, 15 / s), lx, ly;
+    var fs = Math.max(5.5, 15 / s), lx, ly, label, tw, pts4, near, bd, d, i;
     scrim(c, r);
-    strokeThirds(r, c.muted, 0.7);
+    /* in the reveal the grid IS the explanation — full strength */
+    strokeThirds(r, c.muted, 1);
     ctx.globalAlpha = 1;
     ctx.strokeStyle = c.ink;
     ctx.lineWidth = lw(2);
     ctx.strokeRect(r.x, r.y, r.w, r.h);
-    /* the measured subject centre — what "placement" scored */
     ctx.fillStyle = c.accent;
     ctx.strokeStyle = c.accent;
+    /* the crossing scorePlacement measured against, and the gap to it —
+       "one nudge from strong" now points at which nudge */
+    pts4 = thirdsPoints(r);
+    near = pts4[0]; bd = Infinity;
+    for (i = 0; i < 4; i++) {
+      d = Math.hypot(sub.cx - pts4[i].x, sub.cy - pts4[i].y);
+      if (d < bd) { bd = d; near = pts4[i]; }
+    }
+    ctx.lineWidth = lw(1.5);
+    ctx.setLineDash([lw(3), lw(3)]);
+    ctx.beginPath();
+    ctx.moveTo(sub.cx, sub.cy);
+    ctx.lineTo(near.x, near.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(near.x, near.y, lw(4), 0, Math.PI * 2);
+    ctx.stroke();
+    /* the measured subject centre — what "placement" scored */
     ctx.beginPath();
     ctx.arc(sub.cx, sub.cy, lw(3), 0, Math.PI * 2);
     ctx.fill();
-    ctx.lineWidth = lw(1.5);
     ctx.beginPath();
     ctx.arc(sub.cx, sub.cy, lw(7), 0, Math.PI * 2);
     ctx.stroke();
-    /* the suggested crop */
+    /* the suggested crop, labelled with what it would have scored */
     ctx.lineWidth = lw(2.5);
     ctx.setLineDash([lw(8), lw(6)]);
     ctx.strokeRect(b.x, b.y, b.w, b.h);
     ctx.setLineDash([]);
     ctx.font = '700 ' + fs + 'px Caveat, cursive';
     ctx.textBaseline = 'alphabetic';
-    lx = Math.min(Math.max(b.x + 2, 2), SW - 34);
+    ctx.textAlign = 'left';
+    label = 'suggested · ' + scene.best.total;
+    tw = ctx.measureText(label).width;   /* measured, so it never clips */
+    lx = clampv(b.x + 2, 2, Math.max(2, SW - tw - 2));
     ly = b.y - 2;
     if (ly < fs) ly = b.y + fs + 2;
-    ctx.fillText('suggested', lx, ly);
+    ctx.fillText(label, lx, ly);
   }
 
   function draw() {
@@ -626,7 +757,10 @@
      Input — pointer drags (move + corner resize) and keyboard
      ============================================================ */
 
-  var drag = null; /* { id, mode, dx, dy, ax, ay, sx, sy } */
+  var drag = null;    /* { id, mode, dx, dy, ax, ay, sx, sy } */
+  var live = [];      /* pointer ids currently down on the canvas       */
+  var livePos = {};   /* id → point in scene units                      */
+  var pinch = null;   /* { d0, mx0, my0, w0, cx0, cy0 }                  */
 
   function toUnits(ev) {
     var rect = canvas.getBoundingClientRect();
@@ -637,6 +771,11 @@
 
   function hitTest(p) {
     var r = cropRect(), pts = corners(r), i, bestI = -1, bd = hitR(), d;
+    /* The middle quarter of the frame is ALWAYS the move grip: with four
+       44px corner zones a min-size crop on a phone used to leave no
+       draggable centre at all, so shrinking the frame stranded it. */
+    if (Math.abs(p.x - (r.x + r.w / 2)) < r.w / 4 &&
+        Math.abs(p.y - (r.y + r.h / 2)) < r.h / 4) return 'move';
     for (i = 0; i < 4; i++) {
       d = Math.max(Math.abs(p.x - pts[i].x), Math.abs(p.y - pts[i].y));
       if (d < bd) { bd = d; bestI = i; }
@@ -646,7 +785,34 @@
     return null;
   }
 
-  function clampv(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  /* ---- two-finger pinch: the first gesture anyone tries on a crop ---- */
+
+  function pinchPair() {
+    var a = livePos[live[0]], b = livePos[live[1]];
+    if (!a || !b) return null;
+    return {
+      d: Math.max(0.001, Math.hypot(a.x - b.x, a.y - b.y)),
+      mx: (a.x + b.x) / 2,
+      my: (a.y + b.y) / 2,
+    };
+  }
+
+  function startPinch() {
+    var q = pinchPair();
+    if (!q) return;
+    pinch = { d0: q.d, mx0: q.mx, my0: q.my, w0: crop.w,
+              cx0: crop.x + crop.w / 2, cy0: crop.y + crop.w * RATIO / 2 };
+  }
+
+  function applyPinch() {
+    var q = pinchPair(), w;
+    if (!q || !pinch) return;
+    w = clampv(pinch.w0 * (q.d / pinch.d0), MIN_W, MAX_W);
+    crop.w = w;
+    crop.x = pinch.cx0 + (q.mx - pinch.mx0) - w / 2;
+    crop.y = pinch.cy0 + (q.my - pinch.my0) - w * RATIO / 2;
+    clampCrop();
+  }
 
   function clampCrop() {
     crop.w = Math.max(MIN_W, Math.min(crop.w, MAX_W, SW, SH / RATIO));
@@ -655,10 +821,20 @@
   }
 
   canvas.addEventListener('pointerdown', function (ev) {
-    if (phase !== 'crop' || drag) return;
+    /* tapping the picture during the reveal moves on, the same habit
+       the sibling drills teach */
+    /* clearDiscard so an armed "discard round?" never survives a scene
+       change — every other way of advancing already disarms it */
+    if (phase === 'reveal') { ev.preventDefault(); clearDiscard(); advance(); return; }
+    if (phase !== 'crop') return;
     ev.preventDefault();
     try { canvas.focus({ preventScroll: true }); } catch (e) {}
     var p = toUnits(ev);
+    if (live.indexOf(ev.pointerId) < 0) live.push(ev.pointerId);
+    livePos[ev.pointerId] = p;
+    try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
+    if (live.length === 2) { drag = null; startPinch(); return; }
+    if (live.length > 2 || drag) return;
     var mode = hitTest(p);
     if (!mode) return;
     var r = cropRect();
@@ -673,14 +849,15 @@
       drag.sx = (mode === 'ne' || mode === 'se') ? 1 : -1;
       drag.sy = (mode === 'sw' || mode === 'se') ? 1 : -1;
     }
-    try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
   });
 
   canvas.addEventListener('pointermove', function (ev) {
-    if (!drag || phase !== 'crop') { updateCursor(ev); return; }
-    if (ev.pointerId !== drag.id) return;
+    if (phase !== 'crop' || live.indexOf(ev.pointerId) < 0) { updateCursor(ev); return; }
     ev.preventDefault();
-    var p = toUnits(ev), availW, availH, w;
+    livePos[ev.pointerId] = toUnits(ev);
+    if (pinch) { applyPinch(); draw(); return; }
+    if (!drag || ev.pointerId !== drag.id) return;
+    var p = livePos[ev.pointerId], availW, availH, w;
     if (drag.mode === 'move') {
       crop.x = clampv(p.x - drag.dx, 0, SW - crop.w);
       crop.y = clampv(p.y - drag.dy, 0, SH - crop.w * RATIO);
@@ -698,14 +875,20 @@
   });
 
   function endDrag(ev) {
+    var i = live.indexOf(ev.pointerId);
+    if (i >= 0) live.splice(i, 1);
+    delete livePos[ev.pointerId];
     if (drag && ev.pointerId === drag.id) drag = null;
+    if (pinch && live.length < 2) pinch = null;
   }
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
 
   function updateCursor(ev) {
-    if (drag) return;
-    var cur = 'default', mode;
+    if (drag || pinch) return;
+    /* during the reveal the picture IS the next-scene button, so say so
+       — 'default' told a mouse user the canvas had gone inert */
+    var cur = 'pointer', mode;
     if (phase === 'crop') {
       mode = hitTest(toUnits(ev));
       if (mode === 'nw' || mode === 'se') cur = 'nwse-resize';
@@ -725,7 +908,8 @@
 
   canvas.addEventListener('keydown', function (ev) {
     var k = ev.key;
-    if (k === 'Enter') { ev.preventDefault(); advance(); return; }
+    if (k === 'Enter') { ev.preventDefault(); clearDiscard(); advance(); return; }
+    if (k === 'Backspace' || k === 'u') { ev.preventDefault(); undoCut(); return; }
     if (phase !== 'crop') return;
     var step = ev.shiftKey ? 6 : 2;
     if (k === 'ArrowLeft') crop.x -= step;
@@ -744,10 +928,20 @@
      Round flow — cut → reveal → next scene → report once
      ============================================================ */
 
+  /* The verb, every time: drag the frame, then cut. */
   function sceneHint() {
     return 'scene ' + (sceneIdx + 1) + ' of ' + SCENES_PER_ROUND + ' — frame the ' +
       KIND_LABEL[scene.subject.kind] + ' (facing ' +
-      (scene.subject.facing > 0 ? '→' : '←') + '). drag to move, corners to resize.';
+      (scene.subject.facing > 0 ? '→' : '←') + '): drag the middle to move it, ' +
+      'the corners (or a pinch) to resize — then cut it to score.';
+  }
+
+  function setBtnLabel(btn, text, icon) {
+    btn.textContent = text + ' ';
+    var sp = document.createElement('span');
+    sp.setAttribute('aria-hidden', 'true');
+    sp.textContent = icon;
+    btn.appendChild(sp);
   }
 
   function showVerdicts(res) {
@@ -771,7 +965,8 @@
     ptsEl.className = 'v-pts';
     ptsEl.textContent = res.total + '/100';
     noteEl = document.createElement('span');
-    noteEl.textContent = 'scene total · suggested crop dashed in coral';
+    noteEl.textContent = 'scene total · the dashed frame is a ' +
+      scene.best.total + '/100 crop of the same scene';
     row.appendChild(ptsEl);
     row.appendChild(noteEl);
     verdictsEl.appendChild(row);
@@ -789,13 +984,31 @@
       rep = ArtDaily.report(sum / SCENES_PER_ROUND); /* the one report per round */
       hudScore.textContent = String(rep.score);
       hudBest.textContent = rep.best === null ? '–' : String(rep.best);
-      hint.textContent = 'scene 3: ' + res.total + '/100 — round is the mean of all three. study the delta, then go again.';
+      hint.textContent = 'scene ' + SCENES_PER_ROUND + ': ' + res.total +
+        '/100 — round is the mean of all three. study the delta, then go again.';
       showToast((rep.isNewBest ? 'new best! ' : 'round ') + rep.score + ' / 100', rep.isNewBest);
-      btnCut.textContent = 'go again ↻';
+      setBtnLabel(btnCut, 'go again', '↻');
     } else {
-      hint.textContent = 'scene ' + (sceneIdx + 1) + ': ' + res.total + '/100 — compare with the suggested crop, then next.';
-      btnCut.textContent = 'next scene →';
+      hint.textContent = 'scene ' + (sceneIdx + 1) + ': ' + res.total +
+        '/100 — compare with the dashed crop, then tap the picture for the next scene.';
+      setBtnLabel(btnCut, 'next scene', '→');
+      /* the cut is only undoable while the round is still unreported */
+      btnUndo.hidden = false;
     }
+    draw();
+  }
+
+  /* Recovery from a premature cut (or a stray Enter): pull the scene
+     score back out and re-open the same frame. Never offered on the
+     last scene — that one has already been reported. */
+  function undoCut() {
+    if (phase !== 'reveal' || sceneIdx >= SCENES_PER_ROUND - 1) return;
+    sceneScores.pop();
+    phase = 'crop';
+    verdictsEl.hidden = true;
+    btnUndo.hidden = true;
+    setBtnLabel(btnCut, 'cut it', '✂');
+    hint.textContent = sceneHint();
     draw();
   }
 
@@ -805,12 +1018,14 @@
     resetCrop();
     phase = 'crop';
     verdictsEl.hidden = true;
-    btnCut.innerHTML = 'cut it <span aria-hidden="true">✂</span>';
+    btnUndo.hidden = true;
+    setBtnLabel(btnCut, 'cut it', '✂');
     hint.textContent = sceneHint();
     draw();
   }
 
   function newRound() {
+    clearDiscard();
     round += 1;
     sceneIdx = 0;
     sceneScores = [];
@@ -819,7 +1034,8 @@
     resetCrop();
     phase = 'crop';
     verdictsEl.hidden = true;
-    btnCut.innerHTML = 'cut it <span aria-hidden="true">✂</span>';
+    btnUndo.hidden = true;
+    setBtnLabel(btnCut, 'cut it', '✂');
     hudRound.textContent = String(round);
     hudScore.textContent = '–';
     hint.textContent = sceneHint();
@@ -830,6 +1046,31 @@
     if (phase === 'crop') cut();
     else if (sceneIdx < SCENES_PER_ROUND - 1) nextScene();
     else newRound();
+  }
+
+  /* ---- "new round" mid-round throws away scored scenes, so it asks
+     once before it does; the arming lapses on its own. ---- */
+  var discardArmed = false, discardTimer = null;
+
+  function clearDiscard() {
+    clearTimeout(discardTimer);
+    discardTimer = null;
+    if (!discardArmed) return;
+    discardArmed = false;
+    setBtnLabel(btnRound, 'new round', '↻');
+  }
+
+  function roundAtRisk() {
+    return sceneScores.length > 0 &&
+      !(phase === 'reveal' && sceneIdx === SCENES_PER_ROUND - 1);
+  }
+
+  function onRoundClick() {
+    if (discardArmed || !roundAtRisk()) { newRound(); return; }
+    discardArmed = true;
+    setBtnLabel(btnRound, 'discard round?', '↻');
+    clearTimeout(discardTimer);
+    discardTimer = setTimeout(clearDiscard, 3500);
   }
 
   var toastTimer = null;
@@ -845,8 +1086,9 @@
   }
 
   /* ---- chrome wiring ---- */
-  btnCut.addEventListener('click', advance);
-  document.getElementById('btnRound').addEventListener('click', newRound);
+  btnCut.addEventListener('click', function () { clearDiscard(); advance(); });
+  btnUndo.addEventListener('click', function () { clearDiscard(); undoCut(); });
+  btnRound.addEventListener('click', onRoundClick);
 
   var btnHow = document.getElementById('btnHow');
   var howTo = document.getElementById('howTo');
