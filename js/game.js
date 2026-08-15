@@ -846,13 +846,32 @@
      is the hardest thing it does. */
   function hitR() { return Math.max(7, ArtDaily.startRadius(22) / s); }
 
+  /* THE MOVE GRIP HAS TO CLEAR THE TOUCH FLOOR TOO.
+     A flat "middle quarter" was already the fix for widened corner zones
+     stranding a shrunken frame — but a quarter is a RATIO, and at the
+     minimum crop on a 360px phone a quarter measures 41×27px, under the
+     44px floor on its short axis, on the one device where the pointer is
+     a fingertip. So the grip is the larger of the quarter and a
+     hardware-sized box, capped at MOVE_CAP of the frame so the four
+     corner grips always keep a share of it (checked: every corner of
+     every crop size stays grabbable on every profile). */
+  var MOVE_FACTOR = 0.7;   /* of hitR(), which is already per-hardware */
+  var MOVE_CAP = 0.42;     /* of the frame's own half-extent            */
+
+  function moveHalf(r) {
+    var g = hitR() * MOVE_FACTOR;
+    return {
+      x: Math.min(r.w * MOVE_CAP, Math.max(r.w / 4, g)),
+      y: Math.min(r.h * MOVE_CAP, Math.max(r.h / 4, g)),
+    };
+  }
+
   function hitTest(p) {
     var r = cropRect(), pts = corners(r), i, bestI = -1, bd = hitR(), d;
-    /* The middle quarter of the frame is ALWAYS the move grip: with four
-       44px corner zones a min-size crop on a phone used to leave no
-       draggable centre at all, so shrinking the frame stranded it. */
-    if (Math.abs(p.x - (r.x + r.w / 2)) < r.w / 4 &&
-        Math.abs(p.y - (r.y + r.h / 2)) < r.h / 4) return 'move';
+    var mh = moveHalf(r);
+    /* The centre of the frame is ALWAYS the move grip. */
+    if (Math.abs(p.x - (r.x + r.w / 2)) < mh.x &&
+        Math.abs(p.y - (r.y + r.h / 2)) < mh.y) return 'move';
     for (i = 0; i < 4; i++) {
       d = Math.max(Math.abs(p.x - pts[i].x), Math.abs(p.y - pts[i].y));
       if (d < bd) { bd = d; bestI = i; }

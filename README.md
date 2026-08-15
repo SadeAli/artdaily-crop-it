@@ -38,6 +38,13 @@ deliberate dead-centre lesson lands on scene 2 instead of punishing a
 beginner's instinct before anything has been explained.
 
 ## Input fairness
+The corner grips go through `ArtDaily.startRadius(22)` — 44px square on a
+trackpad, 70 on a finger, 74 on a pen — and the centre move grip is now the
+larger of a quarter of the frame and a hardware-sized box, capped so the
+corners keep their share. A quarter of a minimum-size crop on a 360px phone
+measured 41×27px, under the touch floor on its short axis. Scoring is
+untouched on every device.
+
 
 Scores are only ever compared against your own history, so the drill
 eases its tolerances for the hardware in your hand and says which one it
