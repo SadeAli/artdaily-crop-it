@@ -834,7 +834,7 @@
     } else if (phase === 'reveal') {
       s = 'Crop It, scene ' + (sceneIdx + 1) + ' of ' + SCENES_PER_ROUND +
         ' — cut and scored; the verdicts are listed below the picture. ' +
-        'Press Enter for the next scene.';
+        'Press Enter or Space for the next scene.';
     } else {
       res = scoreScene(cropRect(), scene);
       s = 'Crop It, scene ' + (sceneIdx + 1) + ' of ' + SCENES_PER_ROUND + ' — a ' +
@@ -845,7 +845,7 @@
         s += ' ' + (METER_LABELS[p.label] || p.label) + ' ' + p.pts + ' of ' + p.max + ',';
       }
       s += ' ' + res.total + ' of 100. Arrow keys move the frame, ' +
-        'plus and minus resize it, Enter cuts.';
+        'plus and minus resize it, Enter or Space cuts.';
     }
     if (s === lastLabel) return;
     lastLabel = s;
@@ -1058,17 +1058,26 @@
 
   canvas.addEventListener('keydown', function (ev) {
     var k = ev.key;
-    /* a HELD Enter auto-repeats straight through cut → next scene → cut,
-       cutting frames nobody framed and reporting rounds nobody played;
-       only the first press is a press (arrows below still repeat) */
-    if (k === 'Enter') {
+    /* SPACE IS AN ACTIVATION KEY, AND THIS CANVAS IS A CONTROL.
+       tabindex="0" makes the picture a real keyboard control — arrows move
+       the frame, plus/minus resize it — and every sibling canvas drill in
+       the arcade activates on `Enter` OR `' '` (focal-place, light-direction
+       and value-thumbnail all test both). This one tested Enter alone, so a
+       keyboard player who reached for the key every other button on the page
+       answers to got the browser's default instead: Space on a focused
+       element scrolls the sheet. The frame jumps off screen and nothing is
+       cut — which reads as the drill having gone dead.
+       A HELD Enter (or Space) auto-repeats straight through cut → next scene
+       → cut, cutting frames nobody framed and reporting rounds nobody
+       played; only the first press is a press (arrows below still repeat). */
+    if (k === 'Enter' || k === ' ') {
       ev.preventDefault();
       if (ev.repeat) return;
       clearDiscard();
       advance();
       return;
     }
-    if (k === 'Backspace' || k === 'u') { ev.preventDefault(); undoCut(); return; }
+    if (k === 'Backspace' || k === 'u' || k === 'U') { ev.preventDefault(); undoCut(); return; }
     if (phase !== 'crop') return;
     var step = ev.shiftKey ? 6 : 2;
     if (k === 'ArrowLeft') crop.x -= step;
