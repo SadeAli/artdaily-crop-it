@@ -1019,6 +1019,20 @@
   }
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+  /* A LOST RELEASE DOES NOT JUST END A DRAG HERE — IT INVENTS A PINCH.
+     `live` is the list of pointers believed to be down, and the next
+     pointerdown that takes it to two starts a pinch. So one pointerup the
+     canvas never sees leaves a stale id in the list, and the player's very
+     next press is read as the second finger of a two-finger gesture:
+     startPinch() anchors on a position from a touch that ended minutes
+     ago, and the frame jumps and rescales off a distance that was never
+     measured. setPointerCapture normally guarantees the release lands
+     here, but it is wrapped in a try/catch because it can throw or be
+     missing, and then a finger lifted outside the canvas is gone. Caught
+     at the window too — bubble phase, so the canvas handler still runs
+     first and the id is simply absent by the time this one looks. */
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
 
   function updateCursor(ev) {
     if (drag || pinch) return;
