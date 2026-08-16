@@ -1247,7 +1247,15 @@
 
   /* ---- "new round" mid-round throws away scored scenes, so it asks
      once before it does; the arming lapses on its own. ---- */
-  var discardArmed = false, discardTimer = null;
+  /* THE ARMING WAS INVISIBLE TO ANYONE NOT WATCHING THE BUTTON. Its only
+     signal was the button's own label, and a name that changes under a
+     focused button is not re-announced by any screen reader — so the press
+     read as "nothing happened", and a player who then waited out the
+     window pressed again, re-armed, heard nothing again, and could never
+     reach a new round at all. The hint is this drill's live region, so the
+     arming is said there; the line it replaced goes back when the arming
+     lapses, unless something newer (a cut, an undo) already claimed it. */
+  var discardArmed = false, discardTimer = null, discardSaid = '', hintBeforeDiscard = '';
 
   function clearDiscard() {
     clearTimeout(discardTimer);
@@ -1255,6 +1263,8 @@
     if (!discardArmed) return;
     discardArmed = false;
     setBtnLabel(btnRound, 'new round', '↻');
+    if (discardSaid && hint.textContent === discardSaid) hint.textContent = hintBeforeDiscard;
+    discardSaid = '';
   }
 
   function roundAtRisk() {
@@ -1266,8 +1276,12 @@
     if (discardArmed || !roundAtRisk()) { newRound(); return; }
     discardArmed = true;
     setBtnLabel(btnRound, 'discard round?', '↻');
+    hintBeforeDiscard = hint.textContent;
+    discardSaid = 'that scraps this round — press “new round” again to start over, or carry on.';
+    hint.textContent = discardSaid;
     clearTimeout(discardTimer);
-    discardTimer = setTimeout(clearDiscard, 3500);
+    /* 3.5s is not long enough to hear a polite announcement AND press */
+    discardTimer = setTimeout(clearDiscard, 4500);
   }
 
   var toastTimer = null;
