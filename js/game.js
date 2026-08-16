@@ -1143,13 +1143,24 @@
       rep = ArtDaily.report(sum / SCENES_PER_ROUND); /* the one report per round */
       hudScore.textContent = String(rep.score);
       hudBest.textContent = rep.best === null ? '–' : String(rep.best);
-      hint.textContent = 'scene ' + SCENES_PER_ROUND + ': ' + res.total +
-        '/100 — round is the mean of all three. study the delta, then go again.';
+      /* THE HINT IS THE ONLY SPOKEN CHANNEL. The round total reached a
+         screen reader through the toast, and the four verdicts through
+         their own polite region — three regions written in one tick queue
+         instead of merging, so the player heard the scene score, then the
+         round score, then the whole critique list, every round. The toast
+         is a sticker now and the verdict panel is read on demand (the
+         canvas's own label points at it), so this line carries the two
+         numbers that are actually news. */
+      hint.textContent = 'scene ' + SCENES_PER_ROUND + ': ' + res.total + '/100 — ' +
+        (rep.isNewBest ? 'new best! round ' : 'round ') + rep.score +
+        '/100, the mean of all three. the verdicts are listed under the picture —' +
+        ' study the delta, then go again.';
       showToast((rep.isNewBest ? 'new best! ' : 'round ') + rep.score + ' / 100', rep.isNewBest);
       setBtnLabel(btnCut, 'go again', '↻');
     } else {
       hint.textContent = 'scene ' + (sceneIdx + 1) + ': ' + res.total +
-        '/100 — compare with the dashed crop, then tap the picture for the next scene.';
+        '/100 — the verdicts are listed under the picture. compare with the dashed crop,' +
+        ' then tap the picture for the next scene.';
       setBtnLabel(btnCut, 'next scene', '→');
       /* the cut is only undoable while the round is still unreported */
       btnUndo.hidden = false;

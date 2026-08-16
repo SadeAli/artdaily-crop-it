@@ -522,9 +522,15 @@ button, .btn {
 .lm-bar i {
   display: block;
   height: 100%;
-  background: var(--game-accent);
+  /* The length of this fill IS the reading, so its edge against the empty
+     track has to clear the 3:1 non-text floor. Raw coral on the paper
+     track measures 2.66:1 — under the bar, on the sheet most people open
+     first. Inked toward graphite it reads 5.11:1 there; the night sheet
+     already clears it at 5.66:1, so it keeps the raw accent. */
+  background: color-mix(in srgb, var(--game-accent) 55%, var(--ink));
   transition: width 0.12s linear;
 }
+:root[data-theme="dark"] .lm-bar i { background: var(--game-accent); }
 @media (max-width: 460px) {
   .live-meter { gap: 6px; }
   .lm-cap { font-size: 0.55rem; }
